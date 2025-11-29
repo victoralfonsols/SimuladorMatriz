@@ -1,0 +1,5 @@
+{
+  "name": "MatrixSim Pro",
+  "description": "Simulador profesional de matrices con operaciones aritméticas, escalares y generación de reportes PDF.",
+  "requestFramePermissions": []
+}
