@@ -5,7 +5,7 @@ import {
   subtractMatrices, 
   multiplyMatrices, 
   scalarOperation, 
-  transposeMatrix,
+  transposeMatrix, 
   powerMatrix,
   createEmptyMatrix,
   generateRandomData,
@@ -93,8 +93,15 @@ const App: React.FC = () => {
   const updateMatrixData = (id: string, r: number, c: number, val: number) => {
     setMatrices(matrices.map(m => {
       if (m.id === id) {
-        const newData = [...m.data];
-        newData[r][c] = val;
+        // Deep copy of the data array to ensure immutability
+        const newData = m.data.map((row, rowIndex) => {
+           if (rowIndex === r) {
+             const newRow = [...row];
+             newRow[c] = val;
+             return newRow;
+           }
+           return row;
+        });
         return { ...m, data: newData };
       }
       return m;

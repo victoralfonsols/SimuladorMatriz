@@ -1,4 +1,4 @@
-import React, { useState, useEffect, memo } from 'react';
+import React, { useState, useEffect, memo, useCallback } from 'react';
 import { Matrix } from '../types';
 
 interface MatrixCardProps {
@@ -12,19 +12,12 @@ interface MatrixCardProps {
 
 // Inner component for individual cells to handle text input UX nicely
 const MatrixCell = memo(({ r, c, value, onUpdate, readOnly }: { 
-  r: number; c: number; value: number; onUpdate: any; readOnly?: boolean 
+  r: number; c: number; value: number; onUpdate: (r: number, c: number, v: number) => void; readOnly?: boolean 
 }) => {
   const [localVal, setLocalVal] = useState(value.toString());
 
   useEffect(() => {
     const parsed = parseFloat(localVal);
-    // Update local state if prop changes externally and differs numerically
-    // This allows keeping formatting like "1.0" or "-" while typing if the parent value hasn't actually changed
-    // We check !Number.isNaN(parsed) to ensure we don't overwrite a user's "-" (which parses to NaN) 
-    // unless the parent value definitely shifted (which triggers this effect).
-    
-    // Note: This effect runs only when 'value' prop changes. 
-    // If user types "-", parent value (0) doesn't change, so this effect doesn't run, preserving "-".
     if (parsed !== value) {
       setLocalVal(value.toString());
     }
@@ -102,6 +95,11 @@ const MatrixCard: React.FC<MatrixCardProps> = ({
 
   const alias = getVarAlias(matrix.name);
 
+  // Wrapper to inject Matrix ID into the update call
+  const handleCellUpdate = useCallback((r: number, c: number, v: number) => {
+    onUpdateData(matrix.id, r, c, v);
+  }, [matrix.id, onUpdateData]);
+
   return (
     <div 
       className={`
@@ -170,7 +168,7 @@ const MatrixCard: React.FC<MatrixCardProps> = ({
                 r={i}
                 c={j}
                 value={val}
-                onUpdate={onUpdateData}
+                onUpdate={handleCellUpdate}
                 readOnly={readOnly}
               />
             ))

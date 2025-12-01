@@ -13,34 +13,46 @@ const getMatrixDescription = (m: Matrix): string => {
 
 // Helper: Draw professional matrix parentheses ( )
 const drawMatrixParentheses = (doc: jsPDF, x: number, y: number, width: number, height: number) => {
-  const curveDepth = 5; // Amplitude of the curve
-  doc.setDrawColor(20, 20, 20); // Dark grey
+  // Depth of the curve relative to matrix height, clamped for aesthetics
+  const curveDepth = Math.min(width * 0.15, 6); 
+  
+  doc.setDrawColor(0, 0, 0); // Black
   doc.setLineWidth(0.5);
 
   // Left Parenthesis (
-  // Draws a cubic bezier curve relative to the start point
-  // Start point is shifted slightly right (x+2) so the belly of the curve sits near x
+  // We draw a cubic Bezier curve.
+  // Start: (x, y) - Top Left
+  // Control 1: (x - depth, y + height/3) - Pulls curve out to the left
+  // Control 2: (x - depth, y + 2*height/3) - Pulls curve out to the left
+  // End: (x, y + height) - Bottom Left
+  // Note: 'c' in jspdf is relative coordinates from the start point.
+  
+  // Starting point for Left Paren (slightly indented from the container edge)
+  const lx = x + 2; 
+  
   doc.lines(
     [[
       'c',
-      -curveDepth, height * 0.25, // Control point 1 (outwards, up)
-      -curveDepth, height * 0.75, // Control point 2 (outwards, down)
-      0, height                   // End point (straight down relative to start)
+      -curveDepth, height * 0.33, // Control point 1
+      -curveDepth, height * 0.66, // Control point 2
+      0, height                   // End point (relative to start)
     ]],
-    x + 2, 
+    lx, 
     y
   );
 
   // Right Parenthesis )
-  // Start point is shifted slightly left (x+width-2)
+  // Starting point for Right Paren
+  const rx = x + width - 2;
+
   doc.lines(
     [[
       'c',
-      curveDepth, height * 0.25,
-      curveDepth, height * 0.75,
+      curveDepth, height * 0.33,
+      curveDepth, height * 0.66,
       0, height
     ]],
-    x + width - 2, 
+    rx, 
     y
   );
 };
@@ -55,12 +67,40 @@ const renderMatrixMath = (doc: jsPDF, matrix: Matrix, startY: number): number =>
     startY = 30; // Reset Y with margin
   }
 
-  // 1. Matrix Name & Info (Left side)
+  // 1. Matrix Name Rendering with manual Superscript support
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
+  doc.setFontSize(12);
   doc.setTextColor(30, 58, 138); // Blue-900
-  doc.text(`${matrix.name} =`, 14, startY + 8);
+
+  let titleX = 14;
+  let titleY = startY + 8;
+  const name = matrix.name;
+
+  // Check if name indicates transpose (contains ᵀ or ends with 't' logic if you manually named it)
+  // Our logic produces names like "Aᵀ". We want to render "A" then small "t".
+  if (name.endsWith('ᵀ')) {
+    const baseName = name.slice(0, -1);
+    
+    // Draw Base Name (e.g., "A")
+    doc.text(baseName, titleX, titleY);
+    const baseWidth = doc.getTextWidth(baseName);
+    
+    // Draw Superscript 't'
+    doc.setFontSize(8); // Smaller font
+    // Shift X by base width, Shift Y up by 2 units
+    doc.text('t', titleX + baseWidth, titleY - 2); 
+    
+    // Draw Equals sign
+    const tWidth = doc.getTextWidth('t');
+    doc.setFontSize(12); // Reset font
+    doc.text(' =', titleX + baseWidth + tWidth + 1, titleY);
+
+  } else {
+    // Standard rendering
+    doc.text(`${name} =`, titleX, titleY);
+  }
   
+  // Description below title
   doc.setFont("helvetica", "italic");
   doc.setFontSize(8);
   doc.setTextColor(100, 116, 139); // Slate-500
@@ -69,7 +109,6 @@ const renderMatrixMath = (doc: jsPDF, matrix: Matrix, startY: number): number =>
   // 2. Render Data Table
   const body = matrix.data.map(row => row.map(val => val.toString()));
 
-  // Calculate table width to center brackets
   // We use autoTable but with 'plain' theme (no borders)
   autoTable(doc, {
     startY: startY,
@@ -82,7 +121,7 @@ const renderMatrixMath = (doc: jsPDF, matrix: Matrix, startY: number): number =>
       textColor: [30, 41, 59], // Slate-800
       halign: 'center',
       valign: 'middle',
-      cellPadding: 3,
+      cellPadding: 4,
       minCellWidth: 10
     },
     margin: { left: 45 }, // Indent past the name
@@ -90,15 +129,26 @@ const renderMatrixMath = (doc: jsPDF, matrix: Matrix, startY: number): number =>
     didDrawPage: (data) => {
       // Draw Parentheses around the table content
       const table = data.table;
+      
+      // Robust width calculation
+      let tableWidth = 0;
+      if (typeof (table as any).width === 'number') {
+        tableWidth = (table as any).width;
+      } else if (table.columns && table.columns.length > 0) {
+        tableWidth = table.columns.reduce((sum, col) => sum + (col.width || 0), 0);
+      } else {
+        // Fallback estimate
+        tableWidth = matrix.cols * 15;
+      }
+
+      // Heights
       const finalY = table.finalY || 0;
       const initialY = data.settings.startY;
-      const tableHeight = (finalY - initialY);
-      const tableWidth = table.getWidth(pageWidth);
+      const tableHeight = finalY - initialY;
       const startX = data.settings.margin.left;
 
-      if (tableHeight > 0) {
-        // Adjust bracket position slightly outside the cells
-        // Pass width + padding to ensure parentheses enclose the numbers
+      if (tableHeight > 0 && tableWidth > 0) {
+        // Draw brackets slightly outside the content
         drawMatrixParentheses(doc, startX - 2, initialY, tableWidth + 4, tableHeight);
       }
     }
