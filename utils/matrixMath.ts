@@ -186,7 +186,9 @@ export const transposeMatrix = (matrix: Matrix): Matrix => {
 
   return {
     id: crypto.randomUUID(),
-    name: `${matrix.name}ᵀ`,
+    // Use Unicode Escape for Modifier Letter Capital T (U+1D40)
+    // This ensures consistent encoding across environments compared to using the literal character.
+    name: `${matrix.name}\u1D40`, 
     rows: newRows,
     cols: newCols,
     data: resultData,
