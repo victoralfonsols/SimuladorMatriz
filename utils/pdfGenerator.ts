@@ -2,78 +2,110 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Matrix } from '../types';
 
-// Helper to draw brackets around the matrix
-const drawBrackets = (doc: jsPDF, x: number, y: number, width: number, height: number) => {
-  const bracketDepth = 3; // Depth of the bracket arms
-  const lineWidth = 0.5;
-  
-  doc.setDrawColor(0, 0, 0);
-  doc.setLineWidth(lineWidth);
-
-  // Left Bracket [
-  doc.line(x + bracketDepth, y, x, y); // Top arm
-  doc.line(x, y, x, y + height);       // Vertical line
-  doc.line(x, y + height, x + bracketDepth, y + height); // Bottom arm
-
-  // Right Bracket ]
-  const rightX = x + width;
-  doc.line(rightX - bracketDepth, y, rightX, y); // Top arm
-  doc.line(rightX, y, rightX, y + height);       // Vertical line
-  doc.line(rightX, y + height, rightX - bracketDepth, y + height); // Bottom arm
+// Helper: Determine Matrix Type Description
+const getMatrixDescription = (m: Matrix): string => {
+  if (m.rows === 1 && m.cols === 1) return "Escalar (1x1)";
+  if (m.rows === m.cols) return `Matriz Cuadrada (${m.rows}x${m.cols})`;
+  if (m.rows === 1) return `Vector Fila (1x${m.cols})`;
+  if (m.cols === 1) return `Vector Columna (${m.rows}x1)`;
+  return `Matriz Rectangular (${m.rows}x${m.cols})`;
 };
 
+// Helper: Draw professional matrix parentheses ( )
+const drawMatrixParentheses = (doc: jsPDF, x: number, y: number, width: number, height: number) => {
+  const curveDepth = 5; // Amplitude of the curve
+  doc.setDrawColor(20, 20, 20); // Dark grey
+  doc.setLineWidth(0.5);
+
+  // Left Parenthesis (
+  // Draws a cubic bezier curve relative to the start point
+  // Start point is shifted slightly right (x+2) so the belly of the curve sits near x
+  doc.lines(
+    [[
+      'c',
+      -curveDepth, height * 0.25, // Control point 1 (outwards, up)
+      -curveDepth, height * 0.75, // Control point 2 (outwards, down)
+      0, height                   // End point (straight down relative to start)
+    ]],
+    x + 2, 
+    y
+  );
+
+  // Right Parenthesis )
+  // Start point is shifted slightly left (x+width-2)
+  doc.lines(
+    [[
+      'c',
+      curveDepth, height * 0.25,
+      curveDepth, height * 0.75,
+      0, height
+    ]],
+    x + width - 2, 
+    y
+  );
+};
+
+// Render a single matrix block
 const renderMatrixMath = (doc: jsPDF, matrix: Matrix, startY: number): number => {
   const pageWidth = doc.internal.pageSize.width;
   
-  // Check for page break space (approx header + 3 rows)
-  if (startY > doc.internal.pageSize.height - 40) {
+  // Check page break space (Needs ~40 units for header + matrix)
+  if (startY > doc.internal.pageSize.height - 50) {
     doc.addPage();
-    startY = 20;
+    startY = 30; // Reset Y with margin
   }
 
-  // Draw Matrix Name
-  doc.setFontSize(11);
-  doc.setTextColor(0, 0, 0);
+  // 1. Matrix Name & Info (Left side)
   doc.setFont("helvetica", "bold");
-  doc.text(`${matrix.name} =`, 14, startY + 5); // Label on the left
+  doc.setFontSize(11);
+  doc.setTextColor(30, 58, 138); // Blue-900
+  doc.text(`${matrix.name} =`, 14, startY + 8);
   
-  // Prepare data
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(8);
+  doc.setTextColor(100, 116, 139); // Slate-500
+  doc.text(getMatrixDescription(matrix), 14, startY + 13);
+  
+  // 2. Render Data Table
   const body = matrix.data.map(row => row.map(val => val.toString()));
 
-  // Render numbers without borders (Plain theme)
+  // Calculate table width to center brackets
+  // We use autoTable but with 'plain' theme (no borders)
   autoTable(doc, {
-    startY: startY - 2, // Align roughly with the text "A ="
+    startY: startY,
     body: body,
     theme: 'plain',
     styles: {
       font: 'helvetica',
       fontStyle: 'normal',
       fontSize: 10,
+      textColor: [30, 41, 59], // Slate-800
       halign: 'center',
       valign: 'middle',
-      cellPadding: 2,
-      minCellWidth: 8
+      cellPadding: 3,
+      minCellWidth: 10
     },
-    margin: { left: 35 }, // Indent to make room for "Name ="
-    tableWidth: 'wrap',   // Only take necessary width
+    margin: { left: 45 }, // Indent past the name
+    tableWidth: 'wrap',
     didDrawPage: (data) => {
-      // Draw brackets using the calculated table dimensions
+      // Draw Parentheses around the table content
       const table = data.table;
       const finalY = table.finalY || 0;
       const initialY = data.settings.startY;
       const tableHeight = (finalY - initialY);
-      
-      // Calculate width strictly based on content
       const tableWidth = table.getWidth(pageWidth);
       const startX = data.settings.margin.left;
 
       if (tableHeight > 0) {
-        drawBrackets(doc, startX, initialY, tableWidth, tableHeight);
+        // Adjust bracket position slightly outside the cells
+        // Pass width + padding to ensure parentheses enclose the numbers
+        drawMatrixParentheses(doc, startX - 2, initialY, tableWidth + 4, tableHeight);
       }
     }
   });
 
-  return (doc as any).lastAutoTable.finalY + 10;
+  // Return new Y position
+  return (doc as any).lastAutoTable.finalY + 15;
 };
 
 export const generatePDFReport = (
@@ -85,118 +117,140 @@ export const generatePDFReport = (
 ) => {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.width;
+  const pageHeight = doc.internal.pageSize.height;
 
-  // --- Header ---
-  doc.setFontSize(18);
-  doc.setTextColor(20, 20, 20);
-  doc.text('Reporte de Operaciones Matriciales', 14, 20);
+  // --- Brand Header ---
+  doc.setFillColor(37, 99, 235); // Blue-600
+  doc.rect(0, 0, pageWidth, 25, 'F');
   
-  doc.setFontSize(10);
-  doc.setTextColor(100, 100, 100);
-  doc.text(`Generado: ${timestamp.toLocaleString()}`, 14, 28);
-  doc.setLineWidth(0.5);
-  doc.setDrawColor(200, 200, 200);
-  doc.line(14, 32, pageWidth - 14, 32);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.setTextColor(255, 255, 255);
+  doc.text("Reporte de Operaciones Matriciales", 14, 16);
+  
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(219, 234, 254); // Blue-100
+  doc.text(`Generado: ${timestamp.toLocaleString()}`, 14, 22);
+  
+  // Right aligned brand
+  doc.text("MatrixSim Pro", pageWidth - 14, 16, { align: "right" });
 
-  let currentY = 45;
+  let currentY = 40;
 
-  // --- Operation Info ---
+  // --- Section 1: Operation Summary ---
   doc.setFontSize(12);
-  doc.setTextColor(0, 0, 0);
+  doc.setTextColor(30, 41, 59); // Slate-800
   doc.setFont("helvetica", "bold");
   doc.text('1. Definición de la Operación', 14, currentY);
-  currentY += 8;
   
+  // Underline
+  doc.setDrawColor(203, 213, 225); // Slate-300
+  doc.line(14, currentY + 2, pageWidth - 14, currentY + 2);
+  
+  currentY += 10;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
-  doc.text(`Tipo: ${operationType}`, 20, currentY);
-  currentY += 6;
+  doc.text(`• Operación: ${operationType}`, 20, currentY);
   if (scalar !== null) {
-    doc.text(`Escalar (k): ${scalar}`, 20, currentY);
     currentY += 6;
+    doc.text(`• Escalar aplicado (k): ${scalar}`, 20, currentY);
   }
-  currentY += 4;
+  currentY += 15;
 
-  // --- Input Matrices ---
+  // --- Section 2: Inputs ---
   doc.setFontSize(12);
   doc.setFont("helvetica", "bold");
   doc.text('2. Matrices de Entrada', 14, currentY);
-  currentY += 10;
+  doc.line(14, currentY + 2, pageWidth - 14, currentY + 2);
+  currentY += 12;
 
   matrices.forEach((matrix) => {
     currentY = renderMatrixMath(doc, matrix, currentY);
   });
 
-  // --- Results ---
-  if (currentY > doc.internal.pageSize.height - 50) {
+  // --- Section 3: Results ---
+  if (currentY > pageHeight - 60) {
     doc.addPage();
-    currentY = 20;
-  } else {
-    currentY += 5;
+    currentY = 30;
   }
 
   doc.setFontSize(12);
   doc.setFont("helvetica", "bold");
-  doc.setTextColor(0, 80, 0);
-  doc.text('3. Resultado', 14, currentY);
-  currentY += 10;
+  doc.setTextColor(21, 128, 61); // Green-700
+  doc.text('3. Resultados y Procedimiento', 14, currentY);
+  doc.setDrawColor(21, 128, 61);
+  doc.line(14, currentY + 2, pageWidth - 14, currentY + 2);
+  currentY += 15;
 
-  results.forEach((matrix) => {
-    // Render Result Matrix
+  results.forEach((matrix, index) => {
+    // Label step
+    doc.setFontSize(9);
+    doc.setTextColor(100);
+    doc.text(`Paso ${index + 1}:`, 14, currentY - 5);
+    
+    // Render Matrix
     currentY = renderMatrixMath(doc, matrix, currentY);
 
-    // --- Step by Step ---
+    // Render Steps Text
     if (matrix.steps && matrix.steps.length > 0) {
-      if (currentY > doc.internal.pageSize.height - 40) {
+      if (currentY > pageHeight - 40) {
         doc.addPage();
-        currentY = 20;
+        currentY = 30;
       }
 
-      doc.setFontSize(11);
-      doc.setTextColor(60, 60, 60);
-      doc.setFont("helvetica", "bold italic");
-      doc.text('Procedimiento detallado:', 14, currentY);
+      // Steps Container Box (Light gray background)
+      const boxStart = currentY - 5;
+      
+      doc.setFontSize(10);
+      doc.setTextColor(71, 85, 105); // Slate-600
+      doc.setFont("helvetica", "bold");
+      doc.text('Detalle del cálculo:', 14, currentY);
       currentY += 6;
       
       doc.setFontSize(9);
-      doc.setFont("courier", "normal"); // Monospace for alignment
+      doc.setFont("courier", "normal"); 
       
       matrix.steps.forEach(step => {
-        if (currentY > doc.internal.pageSize.height - 20) {
+        if (currentY > pageHeight - 20) {
           doc.addPage();
-          currentY = 20;
+          currentY = 30;
         }
         
-        // Clean up step string just in case
         const cleanStep = step.replace(/\s+/g, ' '); 
-        const lines = doc.splitTextToSize(cleanStep, pageWidth - 30);
+        const lines = doc.splitTextToSize(cleanStep, pageWidth - 35);
         
-        // Bullet point
-        doc.text('•', 16, currentY);
-        doc.text(lines, 22, currentY);
+        doc.setTextColor(30);
+        doc.text('•', 18, currentY);
+        doc.text(lines, 24, currentY);
         
         currentY += (lines.length * 4) + 2;
       });
-
+      
+      // Draw left border line for steps context
+      doc.setDrawColor(200);
+      doc.setLineWidth(0.5);
+      doc.line(16, boxStart + 2, 16, currentY - 2);
+      
       currentY += 10;
     }
   });
 
-  // --- Footer ---
+  // --- Footer Page Numbers ---
   const totalPages = doc.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
     doc.setFontSize(8);
     doc.setTextColor(150);
     doc.text(
-      `MatrixSim Pro - Página ${i} de ${totalPages}`,
+      `Página ${i} de ${totalPages}`,
       pageWidth / 2,
-      doc.internal.pageSize.height - 10,
+      pageHeight - 10,
       { align: 'center' }
     );
   }
 
-  doc.save(`reporte_matrices_${Date.now()}.pdf`);
+  doc.save(`MatrixSim_Report_${Date.now()}.pdf`);
 };
 
 export const exportToCSV = (matrix: Matrix) => {
@@ -212,7 +266,8 @@ export const exportToCSV = (matrix: Matrix) => {
 };
 
 export const exportToTXT = (matrix: Matrix) => {
-  let content = `Matriz: ${matrix.name}\nDimensiones: ${matrix.rows}x${matrix.cols}\n\n`;
+  let content = `Matriz: ${matrix.name}\n`;
+  content += `Tipo: ${getMatrixDescription(matrix)}\n\n`;
   content += matrix.data.map(row => row.join("\t")).join("\n");
   
   if (matrix.steps) {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, memo } from 'react';
 import { Matrix } from '../types';
 
 interface MatrixCardProps {
@@ -9,6 +9,77 @@ interface MatrixCardProps {
   onDelete: (id: string) => void;
   readOnly?: boolean;
 }
+
+// Inner component for individual cells to handle text input UX nicely
+const MatrixCell = memo(({ r, c, value, onUpdate, readOnly }: { 
+  r: number; c: number; value: number; onUpdate: any; readOnly?: boolean 
+}) => {
+  const [localVal, setLocalVal] = useState(value.toString());
+
+  useEffect(() => {
+    const parsed = parseFloat(localVal);
+    // Update local state if prop changes externally and differs numerically
+    // This allows keeping formatting like "1.0" or "-" while typing if the parent value hasn't actually changed
+    // We check !Number.isNaN(parsed) to ensure we don't overwrite a user's "-" (which parses to NaN) 
+    // unless the parent value definitely shifted (which triggers this effect).
+    
+    // Note: This effect runs only when 'value' prop changes. 
+    // If user types "-", parent value (0) doesn't change, so this effect doesn't run, preserving "-".
+    if (parsed !== value) {
+      setLocalVal(value.toString());
+    }
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setLocalVal(val);
+
+    // Allow typing "-", ".", "-." without triggering update yet
+    if (val === '' || val === '-' || val === '.' || val === '-.') {
+       if (val === '') onUpdate(r, c, 0); // Clear = 0
+       return;
+    }
+
+    const num = parseFloat(val);
+    if (!isNaN(num)) {
+       // Don't update if ending in dot (waiting for decimal)
+       if (val.endsWith('.')) return;
+       onUpdate(r, c, num);
+    }
+  };
+
+  const handleBlur = () => {
+    const num = parseFloat(localVal);
+    if (isNaN(num)) {
+      setLocalVal('0');
+      onUpdate(r, c, 0);
+    } else {
+      // Normalize format (e.g. remove trailing dot)
+      setLocalVal(num.toString());
+      onUpdate(r, c, num);
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={localVal}
+      readOnly={readOnly}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      className={`
+        w-full text-center py-2 px-1 text-sm rounded border
+        focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent
+        ${readOnly 
+          ? 'bg-gray-100 dark:bg-slate-700 border-transparent font-semibold cursor-default' 
+          : 'bg-white dark:bg-slate-900 border-gray-300 dark:border-slate-600 shadow-sm'
+        }
+        dark:text-white transition-all
+      `}
+    />
+  );
+});
 
 const MatrixCard: React.FC<MatrixCardProps> = ({ 
   matrix, 
@@ -88,27 +159,19 @@ const MatrixCard: React.FC<MatrixCardProps> = ({
         <div 
           className="grid gap-1 mx-auto"
           style={{ 
-            gridTemplateColumns: `repeat(${matrix.cols}, minmax(3rem, 1fr))`,
+            gridTemplateColumns: `repeat(${matrix.cols}, minmax(3.5rem, 1fr))`,
             maxWidth: '100%'
           }}
         >
           {matrix.data.map((row, i) => (
             row.map((val, j) => (
-              <input
+              <MatrixCell 
                 key={`${i}-${j}`}
-                type="number"
+                r={i}
+                c={j}
                 value={val}
+                onUpdate={onUpdateData}
                 readOnly={readOnly}
-                onChange={(e) => onUpdateData(matrix.id, i, j, parseFloat(e.target.value) || 0)}
-                className={`
-                  w-full text-center py-1 px-1 text-sm rounded border
-                  focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent
-                  ${readOnly 
-                    ? 'bg-gray-100 dark:bg-slate-700 border-transparent font-semibold' 
-                    : 'bg-white dark:bg-slate-900 border-gray-300 dark:border-slate-600'
-                  }
-                  dark:text-white transition-colors
-                `}
               />
             ))
           ))}
